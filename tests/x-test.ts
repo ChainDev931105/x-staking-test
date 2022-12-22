@@ -1,8 +1,8 @@
 import * as anchor from '@project-serum/anchor';
 import { XStaking } from '../target/types/x_staking';
 import { TOKEN_PROGRAM_ID, Token } from "@solana/spl-token";
-import {use as chaiUse, assert as assert_true} from 'chai'
-import {assert_eq} from 'mocha-as-assert'
+import { use as chaiUse, assert as assert_true } from 'chai'
+import { assert_eq } from 'mocha-as-assert'
 import chaiAsPromised from 'chai-as-promised'
 chaiUse(chaiAsPromised)
 
@@ -20,15 +20,28 @@ describe('x-staking', () => {
 
   const program = anchor.workspace.XStaking as anchor.Program<XStaking>;
   const programId = program.programId
-  
-  const treasuryAdminKeypair = anchor.web3.Keypair.fromSecretKey(new Uint8Array([77,208,114,7,139,212,103,94,237,253,48,38,14,224,165,191,66,46,169,145,18,112,97,175,233,240,161,98,25,242,7,252,208,249,117,252,63,51,225,57,170,88,58,227,162,23,52,244,27,77,68,53,139,68,161,54,205,226,129,29,14,84,206,123]));
+
+  const treasuryAdminKeypair = anchor.web3.Keypair.fromSecretKey(new Uint8Array([77, 208, 114, 7, 139, 212, 103, 94, 237, 253, 48, 38, 14, 224, 165, 191, 66, 46, 169, 145, 18, 112, 97, 175, 233, 240, 161, 98, 25, 242, 7, 252, 208, 249, 117, 252, 63, 51, 225, 57, 170, 88, 58, 227, 162, 23, 52, 244, 27, 77, 68, 53, 139, 68, 161, 54, 205, 226, 129, 29, 14, 84, 206, 123]));
   const treasuryAdmin = treasuryAdminKeypair.publicKey;
-  const userKeypair = anchor.web3.Keypair.fromSecretKey(new Uint8Array([193,175,203,110,116,69,233,189,129,146,244,26,38,246,84,86,129,192,248,25,62,249,10,3,152,68,88,16,13,27,182,10,47,249,117,244,173,148,158,132,48,71,199,138,145,178,194,132,56,56,174,35,108,239,223,54,150,232,194,12,224,56,171,92]));
+  const userKeypair = anchor.web3.Keypair.fromSecretKey(new Uint8Array([193, 175, 203, 110, 116, 69, 233, 189, 129, 146, 244, 26, 38, 246, 84, 86, 129, 192, 248, 25, 62, 249, 10, 3, 152, 68, 88, 16, 13, 27, 182, 10, 47, 249, 117, 244, 173, 148, 158, 132, 48, 71, 199, 138, 145, 178, 194, 132, 56, 56, 174, 35, 108, 239, 223, 54, 150, 232, 194, 12, 224, 56, 171, 92]));
   const user = userKeypair.publicKey;
   let treasuryTokenMint: Token = null;
   const mintAmount = 10_000_000_000_000; // 10000 POS
 
   let userTreasuryVault = null;
+  let listenerCreated, listenerDeposited, listenerClaimed;
+
+  before(() => {
+    listenerCreated = program.addEventListener("TreasuryCreated", (event, slot) => {
+      console.log("TreasuryCreated emited: ", event);
+    });
+    listenerDeposited = program.addEventListener("Deposited", (event, slot) => {
+      console.log("Deposited emited: ", event);
+    });
+    listenerClaimed = program.addEventListener("Claimed", (event, slot) => {
+      console.log("Claimed emited: ", event);
+    });
+  });
 
   it('Is Initialize!', async () => {
     console.log("treasuryAdmin", treasuryAdmin.toBase58())
@@ -59,7 +72,7 @@ describe('x-staking', () => {
     const treasuryVault = await pda([TREASURY_VAULT_TAG, treasury.toBuffer()], programId)
     const posMint = await pda([POS_MINT_TAG, treasury.toBuffer()], programId)
     posToken = new Token(program.provider.connection, posMint, TOKEN_PROGRAM_ID, treasuryAdminKeypair)
-    
+
     const tx = await program.rpc.createTreasury(
       {
         accounts: {
@@ -75,7 +88,7 @@ describe('x-staking', () => {
         signers: [treasuryAdminKeypair]
       });
     console.log("tx = ", tx);
-      
+
     const treasuryData = await program.account.treasury.fetch(treasury);
     assert_eq(treasuryData.authority, treasuryAdmin)
     assert_true(treasuryData.treasuryMint.equals(treasuryTokenMint.publicKey), "treasuryMint")
@@ -91,9 +104,9 @@ describe('x-staking', () => {
     const userPosVault = await pda([USER_POS_VAULT_TAG, posMint.toBuffer(), user.toBuffer()], programId)
     let treasuryAmountBefore = ((await treasuryTokenMint.getAccountInfo(treasuryVault)).amount as anchor.BN).toNumber()
     let userPosAmountBefore = 0;
-    try{
+    try {
       userPosAmountBefore = ((await posToken.getAccountInfo(userPosVault)).amount as anchor.BN).toNumber()
-    }catch(e){}
+    } catch (e) { }
 
     const tx = await program.rpc.stake(
       new anchor.BN(stakeAmount),
@@ -127,6 +140,7 @@ describe('x-staking', () => {
     const userPosVault = await pda([USER_POS_VAULT_TAG, posMint.toBuffer(), user.toBuffer()], programId)
     let treasuryAmountBefore = ((await treasuryTokenMint.getAccountInfo(treasuryVault)).amount as anchor.BN).toNumber()
     let userPosAmountBefore = ((await posToken.getAccountInfo(userPosVault)).amount as anchor.BN).toNumber()
+
     const tx = await program.rpc.redeem(
       new anchor.BN(redeemAmount),
       {
@@ -148,30 +162,39 @@ describe('x-staking', () => {
     assert_true(treasuryAmountBefore - treasuryAmountAfter === redeemAmount, "redeemAmount")
     assert_true(userPosAmountBefore - userPosAmountAfter === redeemAmount, "redeemAmount")
   });
+
+  after(() => {
+    try {
+      program.removeEventListener(listenerCreated);
+      program.removeEventListener(listenerDeposited);
+      program.removeEventListener(listenerClaimed);
+    } catch {}
+  });
 });
 
+
 async function safeAirdrop(connection: anchor.web3.Connection, destination: anchor.web3.PublicKey, amount = 100000000) {
-  while (await connection.getBalance(destination) < amount){
-    try{
+  while (await connection.getBalance(destination) < amount) {
+    try {
       // Request Airdrop for user
       await connection.confirmTransaction(
         await connection.requestAirdrop(destination, 100000000),
         "confirmed"
       );
-    }catch{}
-    
+    } catch { }
+
   };
 }
 
 async function pda(seeds: (Buffer | Uint8Array)[], programId: anchor.web3.PublicKey) {
-  const [pdaKey] = 
-      await anchor.web3.PublicKey.findProgramAddress(
-        seeds,
-        programId,
-      );
+  const [pdaKey] =
+    await anchor.web3.PublicKey.findProgramAddress(
+      seeds,
+      programId,
+    );
   return pdaKey
 }
 
 async function delay(ms: number) {
-  return new Promise( resolve => setTimeout(resolve, ms) );
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

@@ -3,6 +3,7 @@ use anchor_spl::token::{self,  Transfer, MintTo, Burn};
 use crate::*;
 use constants::*;
 use utils::*;
+use events::*;
 use errors::*;
 
 impl<'info> CreateTreasury<'info>{
@@ -14,6 +15,13 @@ impl<'info> CreateTreasury<'info>{
         treasury.treasury_mint = self.treasury_mint.key();
         treasury.treasury_vault = self.treasury_vault.key();
         treasury.pos_mint = self.pos_mint.key();
+
+        emit!(TreasuryCreated{
+            authority: treasury.authority,
+            treasury_mint: treasury.treasury_mint,
+            treasury_vault: treasury.treasury_vault,
+            pos_mint: treasury.pos_mint,
+        });
 
         Ok(())
     }    
@@ -56,6 +64,12 @@ impl<'info> Stake<'info>{
         let cpi_ctx_pos = CpiContext::new_with_signer(cpi_program_pos, cpi_accounts_pos, signer);
         token::mint_to(cpi_ctx_pos, amount)?;
 
+        emit!(Deposited{
+            treasury: treasury.key(),
+            user: self.authority.key(),
+            amount: amount,
+        });
+
         Ok(())
     }
 }
@@ -97,6 +111,12 @@ impl<'info> Redeem<'info>{
         let cpi_program = self.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
         token::transfer(cpi_ctx, amount)?;
+        
+        emit!(Claimed{
+            treasury: treasury.key(),
+            user: self.authority.key(),
+            amount: amount,
+        });
 
         Ok(())
     }
